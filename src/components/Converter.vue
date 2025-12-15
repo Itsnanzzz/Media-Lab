@@ -19,26 +19,42 @@
           </div>
         </div>
 
+        <!-- Error Message -->
+        <div
+          v-if="errorMessage"
+          class="mb-4 px-4 py-3 rounded-xl bg-red-500/20 border border-red-500/50 text-red-200 text-sm"
+        >
+          <strong>Error:</strong> {{ errorMessage }}
+        </div>
+
+        <!-- Success Message -->
+        <div
+          v-if="successMessage"
+          class="mb-4 px-4 py-3 rounded-xl bg-emerald-500/20 border border-emerald-500/50 text-emerald-200 text-sm"
+        >
+          {{ successMessage }}
+        </div>
+
         <div class="grid md:grid-cols-2 gap-6">
           <div class="flex flex-col gap-4">
             <label class="text-sm text-slate-200">Pilih Gambar</label>
             <label
               class="flex items-center justify-between gap-3 px-4 py-3 rounded-xl border border-white/20 bg-white/5 hover:bg-white/10 transition cursor-pointer"
             >
-              <div class="flex flex-col">
-                <span class="text-sm font-medium">
+              <div class="flex flex-col flex-1 min-w-0">
+                <span class="text-sm font-medium truncate">
                   {{ file ? file.name : "Unggah file (PNG, JPG, WEBP, ICO)" }}
                 </span>
                 <span class="text-xs text-slate-300">
-                  Maksimal gunakan gambar yang tidak terlalu besar agar cepat.
+                  {{ file ? formatFileSize(file.size) : "Maksimal 10MB" }}
                 </span>
               </div>
-              <span class="px-3 py-1 rounded-lg bg-gradient-to-r from-blue-500 to-cyan-400 text-xs font-semibold text-white">
+              <span class="px-3 py-1 rounded-lg bg-gradient-to-r from-blue-500 to-cyan-400 text-xs font-semibold text-white whitespace-nowrap">
                 Browse
               </span>
               <input
                 type="file"
-                accept="image/*"
+                accept="image/png,image/jpeg,image/jpg,image/webp,image/x-icon"
                 @change="onFileChange"
                 class="hidden"
               />
@@ -60,7 +76,7 @@
             <button
               @click="convert"
               :disabled="loading || !file"
-              class="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-blue-500 to-cyan-400 text-white px-4 py-3 rounded-xl text-sm font-semibold shadow-lg shadow-cyan-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              class="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-blue-500 to-cyan-400 text-white px-4 py-3 rounded-xl text-sm font-semibold shadow-lg shadow-cyan-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition hover:shadow-cyan-500/50"
             >
               <span v-if="loading" class="h-4 w-4 rounded-full border-2 border-white/60 border-t-transparent animate-spin"></span>
               <span>{{ loading ? "Memproses..." : "Convert Sekarang" }}</span>
@@ -69,16 +85,21 @@
 
           <div class="flex flex-col gap-4">
             <div class="rounded-xl border border-white/20 bg-white/5 p-4 min-h-[160px] flex items-center justify-center text-center">
-              <div v-if="downloadUrl" class="space-y-3">
-                <p class="text-sm text-slate-200">Siap diunduh</p>
-                <a
-                  :href="downloadUrl"
+              <div v-if="downloadUrl" class="space-y-3 w-full">
+                <p class="text-sm text-slate-200">✓ Konversi berhasil!</p>
+                <button
+                  @click="downloadFile"
                   class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 border border-white/20 text-sm font-semibold hover:bg-white/15 transition"
-                  download
                 >
                   <span class="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                  Download Hasil
-                </a>
+                  Download {{ filename || 'Hasil' }}
+                </button>
+                <p class="text-xs text-slate-400">
+                  File akan terhapus otomatis dalam 60 detik
+                </p>
+              </div>
+              <div v-else-if="loading" class="text-sm text-slate-300">
+                <div class="animate-pulse">Sedang memproses gambar...</div>
               </div>
               <div v-else class="text-sm text-slate-300">
                 Hasil akan muncul di sini setelah proses konversi selesai.
@@ -86,7 +107,7 @@
             </div>
 
             <div class="rounded-xl border border-white/20 bg-white/5 p-4 text-xs text-slate-300 leading-relaxed">
-              <p class="font-semibold text-slate-200 mb-2">Tips kualitas</p>
+              <p class="font-semibold text-slate-200 mb-2">💡 Tips kualitas</p>
               <ul class="list-disc list-inside space-y-1">
                 <li>PNG cocok untuk transparansi.</li>
                 <li>JPG untuk ukuran file kecil.</li>
@@ -100,6 +121,7 @@
     </div>
   </div>
 </template>
+
 <script>
 export default {
   data() {
@@ -107,16 +129,52 @@ export default {
       file: null,
       format: "png",
       downloadUrl: "",
+      filename: "",
       loading: false,
+      errorMessage: "",
+      successMessage: "",
       backendUrl: import.meta.env.VITE_BACKEND_URL || "http://localhost:5000",
-      apiKey: import.meta.env.VITE_API_KEY || "LenovoLOQ15IRX9"
+      apiKey: import.meta.env.VITE_API_KEY || ""
     };
   },
 
   methods: {
     onFileChange(e) {
-      this.file = e.target.files[0];
+      const selectedFile = e.target.files[0];
+      
+      if (!selectedFile) return;
+
+      // Validasi ukuran file (10MB)
+      const maxSize = 10 * 1024 * 1024;
+      if (selectedFile.size > maxSize) {
+        this.errorMessage = "File terlalu besar! Maksimal 10MB.";
+        this.file = null;
+        e.target.value = "";
+        return;
+      }
+
+      // Validasi tipe file
+      const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/x-icon'];
+      if (!allowedTypes.includes(selectedFile.type)) {
+        this.errorMessage = "Format file tidak didukung! Gunakan PNG, JPG, WEBP, atau ICO.";
+        this.file = null;
+        e.target.value = "";
+        return;
+      }
+
+      this.file = selectedFile;
       this.downloadUrl = "";
+      this.filename = "";
+      this.errorMessage = "";
+      this.successMessage = "";
+    },
+
+    formatFileSize(bytes) {
+      if (bytes === 0) return '0 Bytes';
+      const k = 1024;
+      const sizes = ['Bytes', 'KB', 'MB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
     },
 
     async convert() {
@@ -124,6 +182,9 @@ export default {
 
       this.loading = true;
       this.downloadUrl = "";
+      this.filename = "";
+      this.errorMessage = "";
+      this.successMessage = "";
 
       const form = new FormData();
       form.append("file", this.file);
@@ -133,32 +194,78 @@ export default {
         const res = await fetch(`${this.backendUrl}/api/convert`, {
           method: "POST",
           headers: {
-            "x-api-key": this.apiKey
+            "X-API-Key": this.apiKey
           },
           body: form
         });
 
         if (!res.ok) {
-          console.error("Server error", await res.text());
-          this.loading = false;
-          return;
+          const errorData = await res.json().catch(() => ({ error: "Unknown error" }));
+          throw new Error(errorData.error || `Server error: ${res.status}`);
         }
 
         const data = await res.json();
 
-        if (data.download_url) {
-          const base = this.backendUrl?.replace(/\/$/, "") || "";
-          this.downloadUrl = `${base}${data.download_url}?key=${this.apiKey}`;
+        if (data.download_url && data.filename) {
+          this.filename = data.filename;
+          // Simpan URL lengkap untuk download
+          const base = this.backendUrl.replace(/\/$/, "");
+          this.downloadUrl = `${base}${data.download_url}`;
+          this.successMessage = "Konversi berhasil! Silakan download file Anda.";
+        } else {
+          throw new Error("Invalid response from server");
         }
-      } catch (err) {
-        console.error("Conversion error", err);
-      }
 
-      this.loading = false;
+      } catch (err) {
+        console.error("Conversion error:", err);
+        this.errorMessage = err.message || "Terjadi kesalahan saat konversi. Silakan coba lagi.";
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async downloadFile() {
+      if (!this.downloadUrl) return;
+
+      try {
+        const res = await fetch(this.downloadUrl, {
+          method: "GET",
+          headers: {
+            "X-API-Key": this.apiKey
+          }
+        });
+
+        if (!res.ok) {
+          throw new Error("Download failed");
+        }
+
+        // Download file
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = this.filename || 'converted-image';
+        document.body.appendChild(a);
+        a.click();
+        
+        // Cleanup
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+
+        this.successMessage = "File berhasil diunduh!";
+
+      } catch (err) {
+        console.error("Download error:", err);
+        this.errorMessage = "Gagal mengunduh file. Silakan coba lagi.";
+      }
     }
   }
 };
-</script>    
+</script>
 
 <style scoped>
+/* Optional: Add smooth transitions */
+button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
 </style>
